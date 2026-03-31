@@ -10,12 +10,30 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import os
+import threading
+import time
+import urllib.request
 
 app = Flask(__name__)
 
 # 從環境變數讀取金鑰（不要直接寫在程式碼裡）
 configuration = Configuration(access_token=os.environ.get('CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.environ.get('CHANNEL_SECRET'))
+
+# ── 保活功能：每 10 分鐘自動 ping 自己，防止 Render 睡眠 ──
+RENDER_URL = os.environ.get('RENDER_URL', 'https://my-line-bot-f984.onrender.com')
+
+def keep_alive():
+    while True:
+        time.sleep(600)  # 等 10 分鐘
+        try:
+            urllib.request.urlopen(RENDER_URL + '/ping')
+        except Exception:
+            pass  # 即使失敗也不影響主程式
+
+@app.route("/ping", methods=['GET'])
+def ping():
+    return 'pong', 200
 
 # ── 複習提示內容 ──────────────────────────────────────────
 STUDY_TOPICS = {
@@ -79,5 +97,12 @@ def handle_message(event):
 
 # ── 啟動伺服器 ────────────────────────────────────────────
 if __name__ == "__main__":
+    # 啟動保活背景執行緒
+    t = threading.Thread(target=keep_alive, daemon=True)
+    t.start()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+else:
+    # 用 gunicorn 啟動時也要啟動保活
+    t = threading.Thread(target=keep_alive, daemon=True)
+    t.start()
